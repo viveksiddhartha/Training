@@ -1,13 +1,19 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
+	"time"
+
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type IssuesListResponse struct {
+type IssueListResponse struct {
 	Expand     string `json:"expand"`
 	StartAt    int    `json:"startAt"`
 	MaxResults int    `json:"maxResults"`
@@ -221,8 +227,12 @@ type IssuesListResponse struct {
 	} `json:"issues"`
 }
 
-func main() {
+type JIRAKey struct {
+	JIRAID  string
+	History string
+}
 
+func main() {
 	url := "https://techcody.atlassian.net/rest/api/latest/search?jql=project=%22SKP%22&maxResults=100&expand=changelog"
 	method := "GET"
 
@@ -248,20 +258,45 @@ func main() {
 		fmt.Println(err)
 		return
 	}
-	//	fmt.Println(string(body))
-	u := IssuesListResponse{}
+
+	u := IssueListResponse{}
 
 	json.Unmarshal([]byte(body), &u)
 
-	for i := 0; i > len(u.Issues); i++ {
-		fmt.Sprintf("Change log history against %s", u.Issues[i].ID)
+	for i := 0; i < len(u.Issues); i++ {
 
 		for j := 0; j < len(u.Issues[i].Changelog.Histories); j++ {
 
-			fmt.Sprintf("Change log history against %s  is mentioned %s", u.Issues[i].ID, u.Issues[i].Changelog.Histories[j].ID)
+			fmt.Printf("Issue Key is %s and History ID is %s \n", u.Issues[i].Key, u.Issues[i].Changelog.Histories[j].ID)
+
+			jiraJson := JIRAKey{JIRAID: u.Issues[i].Key, History: u.Issues[i].Changelog.Histories[j].ID}
+
+			MongoDBInsert(&jiraJson)
 
 		}
 
 	}
+
+}
+
+func MongoDBInsert(body *JIRAKey) {
+	clientOptions := options.Client().
+		ApplyURI("mongodb+srv://svcrm:svcrm@cluster0.yn4cf.mongodb.net/techcody?retryWrites=true&w=majority")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client, err := mongo.Connect(ctx, clientOptions)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	database := client.Database("techcody")
+	jiracolllection := database.Collection("training")
+
+	insertresult, err := jiracolllection.InsertOne(ctx, body)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(insertresult.InsertedID)
 
 }
